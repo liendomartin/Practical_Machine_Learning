@@ -1,0 +1,127 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Martin Andres Liendo"
+date: "December 6, 2017"
+output: 
+      html_document:
+          number_sections: true
+          fig_caption: true
+          toc: true
+          toc_float: true
+          theme: cosmo
+          highlight: tango
+          code_folding: show
+geometry: margin=1in
+fontsize: 11pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement , a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+
+# Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+# Getting and Cleaning Data
+```{r , echo = T, warning=F, message= F}
+library(data.table)
+library(caret)
+library(ggplot2)
+set.seed(10)
+
+train <- fread("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+test <- fread("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+
+```
+
+## Cleaning NAs
+
+From Leonard Greski, a Mentor in the course: "*You can save yourself a lot of effort with the following rule of thumb: if more than 50% of the observations are missing for a feature / variable, don't bother to impute missing values because imputing the same number over and over again reduces the variance in the variable being imputed, making it useless as a predictor / explainer of a dependent variable.*"
+
+
+```{r , echo = T, warning=F}
+na_col <- which(colSums(sapply(train, is.na))/nrow(train) > 0.8)
+train <- train[, -na_col, with = F]
+```
+
+## Near Zero Variance and Pre-Process  
+I also applied the Near Zero Variance to remove the variables with no variability because they are not useful to construct a prediction model. In addition, I removed the columns 1 to 6 because these variables do not seem to make any type of impact in what we are trying to predict. 
+
+```{r , echo = T, warning=F}
+nzv <- nearZeroVar(train)
+
+train <- train[, -nzv, with = F]
+train <- train[, - c(1:6)]
+
+sapply(train, class)
+train <- train[, classe := as.factor(classe)]
+dim(train)
+```
+
+So, I end up with 53 columns. All the predictors are numeric variables and the target variable has been changed to a factor type.
+
+# Data Modelling  
+Two models learnt in the course are used in this step. The idea is analyze which is more accurate for this dataset and make the final prediction with the best model. The models selected are Stochastic Gradient Boosting Model (GBM) and Random Forest. These algorithms has been taught during the course, among others, and I choose them due to a personal interest in broaden my knowledge in them.
+
+## Data Partition 
+Given that the train dataset is large, I decide to split it in two. I will train the model in `new_train`, and then analyze and predict in the `new_validation` set. In both cases I have used a *5-fold cross validation*. This would improve my models and should not overfit. Confusion Matrix are displayed for every predicted model in order to understand the *Out-Of-Sample Error*.
+
+```{r , echo = T, warning=F}
+inTrain <- createDataPartition(y = train$classe, p = 0.7, list = F)
+new_train <- train[inTrain, ]
+new_validation <- train[-inTrain,]
+```
+
+## GBM Model
+
+```{r , echo = T, warning=F, message=F}
+train_control <- trainControl(method = "cv", number = 5)
+fit_gbm <- train(classe ~. , data = new_train, method = "gbm", 
+                 trControl = train_control, verbose = F)
+pred_gbm <- predict(fit_gbm, new_validation)
+conf_gbm <- confusionMatrix(pred_gbm, new_validation$classe)
+conf_gbm
+```
+The accuracy of this model is `r conf_gbm$overall["Accuracy"]`
+
+## Random Forest Model
+```{r , echo = T, warning=F, message=F}
+train_control <- trainControl(method = "cv", number = 5)
+fit_rf <- train(classe ~., data = new_train, method = "rf", 
+                trControl = train_control)
+
+pred_rf <- predict(fit_rf, new_validation)
+conf_rf <- confusionMatrix(pred_rf, new_validation$classe)
+conf_rf
+```
+The accuracy of this model is `r conf_rf$overall["Accuracy"]`
+Hence, I will continue with the Random Forest model that seems to be more precise with less Out of Sample error. The out of sample error can be estimated to be 1 - the model Accuracy.
+
+## Prediction
+```{r , echo = T, warning=F, message=F}
+col_train <- names(new_train[, -53])
+test <- test[, col_train, with = F]
+final_pred <- predict(fit_rf, test)
+# write.csv2(final_pred, "final_prediction.csv", row.names = T)
+```
+
+So, I use this results for the Prediction Quiz in the course with a 100% out of sample accuracy. Results cannot be shown due to Coursera's Honour Code.
+
+## Final comments and further steps
+* Feature tuning and more exploratory analysis (more charts maybe) could improve the accuracy of my models. 
+* Could have been a good idea to ensemble the models. But the project's requirement recommend to be concise and short.
+* Feel free to comment and make recommendations to this work.
+
